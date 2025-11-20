@@ -1,34 +1,16 @@
-// _worker.js
+'use strict'
 
 // Docker镜像仓库主机地址
-let hub_host = 'registry-1.docker.io'
+const hub_host = 'registry-1.docker.io'
 // Docker认证服务器地址
 const auth_url = 'https://auth.docker.io'
 // 自定义的工作服务器地址
-let workers_url = 'https://dockerhubs.liyaobing.workers.dev'
+let workers_url = 'https://你的域名'
 
-let 屏蔽爬虫UA = ['netcraft'];
-
-// 根据主机名选择对应的上游地址
-function routeByHosts(host) {
-		// 定义路由表
-	const routes = {
-		// 生产环境
-		"quay": "quay.io",
-		"gcr": "gcr.io",
-		"k8s-gcr": "k8s.gcr.io",
-		"k8s": "registry.k8s.io",
-		"ghcr": "ghcr.io",
-		"cloudsmith": "docker.cloudsmith.io",
-		"nvcr": "nvcr.io",
-		
-		// 测试环境
-		"test": "registry-1.docker.io",
-	};
-
-	if (host in routes) return [ routes[host], false ];
-	else return [ hub_host, true ];
-}
+/**
+ * 静态文件 (404.html, sw.js, conf.js)
+ * ref: https://global.v2ex.com/t/1007922
+ */
 
 /** @type {RequestInit} */
 const PREFLIGHT_INIT = {
@@ -63,119 +45,12 @@ function newUrl(urlStr) {
 	}
 }
 
-function isUUID(uuid) {
-	// 定义一个正则表达式来匹配 UUID 格式
-	const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[4][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-	
-	// 使用正则表达式测试 UUID 字符串
-	return uuidRegex.test(uuid);
-}
-
-async function nginx() {
-	const text = `
-	<!DOCTYPE html>
-	<html>
-	<head>
-	<title>Welcome to nginx!</title>
-	<style>
-		body {
-			width: 35em;
-			margin: 0 auto;
-			font-family: Tahoma, Verdana, Arial, sans-serif;
-		}
-	</style>
-	</head>
-	<body>
-	<h1>Welcome to nginx!</h1>
-	<p>If you see this page, the nginx web server is successfully installed and
-	working. Further configuration is required.</p>
-	
-	<p>For online documentation and support please refer to
-	<a href="http://nginx.org/">nginx.org</a>.<br/>
-	Commercial support is available at
-	<a href="http://nginx.com/">nginx.com</a>.</p>
-	
-	<p><em>Thank you for using nginx.</em></p>
-	</body>
-	</html>
-	`
-	return text ;
-}
-
 export default {
 	async fetch(request, env, ctx) {
 		const getReqHeader = (key) => request.headers.get(key); // 获取请求头
 
 		let url = new URL(request.url); // 解析请求URL
-		const userAgentHeader = request.headers.get('User-Agent');
-		const userAgent = userAgentHeader ? userAgentHeader.toLowerCase() : "null";
-		if (env.UA) 屏蔽爬虫UA = 屏蔽爬虫UA.concat(await ADD(env.UA));
 		workers_url = `https://${url.hostname}`;
-		const pathname = url.pathname;
-		const hostname = url.searchParams.get('hubhost') || url.hostname; 
-		const hostTop = hostname.split('.')[0];// 获取主机名的第一部分
-		const checkHost = routeByHosts(hostTop);
-		hub_host = checkHost[0]; // 获取上游地址
-		const fakePage = checkHost[1];
-		console.log(`域名头部: ${hostTop}\n反代地址: ${hub_host}\n伪装首页: ${fakePage}`);
-		const isUuid = isUUID(pathname.split('/')[1].split('/')[0]);
-		
-		if (屏蔽爬虫UA.some(fxxk => userAgent.includes(fxxk)) && 屏蔽爬虫UA.length > 0){
-			//首页改成一个nginx伪装页
-			return new Response(await nginx(), {
-				headers: {
-					'Content-Type': 'text/html; charset=UTF-8',
-				},
-			});
-		}
-		
-		const conditions = [
-			isUuid,
-			pathname.includes('/_'),
-			pathname.includes('/r'),
-			pathname.includes('/v2/user'),
-			pathname.includes('/v2/orgs'),
-			pathname.includes('/v2/_catalog'),
-			pathname.includes('/v2/categories'),
-			pathname.includes('/v2/feature-flags'),
-			pathname.includes('search'),
-			pathname.includes('source'),
-			pathname === '/',
-			pathname === '/favicon.ico',
-			pathname === '/auth/profile',
-		];
-
-		if (conditions.some(condition => condition) && (fakePage === true || hostTop == 'docker')) {
-			if (env.URL302){
-				return Response.redirect(env.URL302, 302);
-			} else if (env.URL){
-				if (env.URL.toLowerCase() == 'nginx'){
-					//首页改成一个nginx伪装页
-					return new Response(await nginx(), {
-						headers: {
-							'Content-Type': 'text/html; charset=UTF-8',
-						},
-					});
-				} else return fetch(new Request(env.URL, request));
-			}
-			
-			const newUrl = new URL("https://registry.hub.docker.com" + pathname + url.search);
-
-			// 复制原始请求的标头
-			const headers = new Headers(request.headers);
-
-			// 确保 Host 头部被替换为 hub.docker.com
-			headers.set('Host', 'registry.hub.docker.com');
-
-			const newRequest = new Request(newUrl, {
-					method: request.method,
-					headers: headers,
-					body: request.method !== 'GET' && request.method !== 'HEAD' ? await request.blob() : null,
-					redirect: 'follow'
-			});
-
-			return fetch(newRequest);
-		}
 
 		// 修改包含 %2F 和 %3A 的请求
 		if (!/%2F/.test(url.search) && /%3A/.test(url.toString())) {
@@ -185,7 +60,7 @@ export default {
 		}
 
 		// 处理token请求
-		if (url.pathname.includes('/token')) {
+		if (url.pathname === '/token') {
 			let token_parameter = {
 				headers: {
 					'Host': 'auth.docker.io',
@@ -257,7 +132,6 @@ export default {
 		return response;
 	}
 };
-
 /**
  * 处理HTTP请求
  * @param {Request} req 请求对象
@@ -330,14 +204,4 @@ async function proxy(urlObj, reqInit, rawLen) {
 		status,
 		headers: resHdrNew
 	})
-}
-
-async function ADD(envadd) {
-	var addtext = envadd.replace(/[	 |"'\r\n]+/g, ',').replace(/,+/g, ',');	// 将空格、双引号、单引号和换行符替换为逗号
-	//console.log(addtext);
-	if (addtext.charAt(0) == ',') addtext = addtext.slice(1);
-	if (addtext.charAt(addtext.length -1) == ',') addtext = addtext.slice(0, addtext.length - 1);
-	const add = addtext.split(',');
-	//console.log(add);
-	return add ;
 }
